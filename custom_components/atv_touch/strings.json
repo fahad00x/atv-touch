@@ -1,0 +1,45 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Apple TV Touch",
+        "description": "Sends touch gestures to Apple TVs set up with the Apple TV integration."
+      }
+    },
+    "abort": {
+      "already_configured": "Already set up."
+    }
+  },
+  "services": {
+    "swipe": {
+      "name": "Swipe",
+      "description": "Swipe on the Apple TV touch surface (coordinates 0-1000).",
+      "fields": {
+        "entity_id": {"name": "Apple TV", "description": "An Apple TV media player or remote entity."},
+        "start_x": {"name": "Start X", "description": "0-1000."},
+        "start_y": {"name": "Start Y", "description": "0-1000."},
+        "end_x": {"name": "End X", "description": "0-1000."},
+        "end_y": {"name": "End Y", "description": "0-1000."},
+        "duration_ms": {"name": "Duration", "description": "Time to reach the end, in milliseconds."}
+      }
+    },
+    "action": {
+      "name": "Touch action",
+      "description": "One touch event: press, move (hold) or release.",
+      "fields": {
+        "entity_id": {"name": "Apple TV", "description": "An Apple TV media player or remote entity."},
+        "x": {"name": "X", "description": "0-1000."},
+        "y": {"name": "Y", "description": "0-1000."},
+        "mode": {"name": "Mode", "description": "press, move or release."}
+      }
+    },
+    "click": {
+      "name": "Touch click",
+      "description": "Click the touch surface.",
+      "fields": {
+        "entity_id": {"name": "Apple TV", "description": "An Apple TV media player or remote entity."},
+        "action": {"name": "Action", "description": "single, double or hold."}
+      }
+    }
+  }
+}

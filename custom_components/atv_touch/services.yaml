@@ -1,0 +1,59 @@
+swipe:
+  fields:
+    entity_id:
+      required: true
+      selector:
+        entity:
+          integration: apple_tv
+    start_x:
+      required: true
+      selector:
+        number: {min: 0, max: 1000}
+    start_y:
+      required: true
+      selector:
+        number: {min: 0, max: 1000}
+    end_x:
+      required: true
+      selector:
+        number: {min: 0, max: 1000}
+    end_y:
+      required: true
+      selector:
+        number: {min: 0, max: 1000}
+    duration_ms:
+      default: 300
+      selector:
+        number: {min: 10, max: 5000, unit_of_measurement: ms}
+action:
+  fields:
+    entity_id:
+      required: true
+      selector:
+        entity:
+          integration: apple_tv
+    x:
+      required: true
+      selector:
+        number: {min: 0, max: 1000}
+    y:
+      required: true
+      selector:
+        number: {min: 0, max: 1000}
+    mode:
+      required: true
+      selector:
+        select:
+          options: [press, move, release]
+click:
+  fields:
+    entity_id:
+      required: true
+      selector:
+        entity:
+          integration: apple_tv
+    action:
+      default: single
+      selector:
+        select:
+          options: [single, double, hold]

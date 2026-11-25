@@ -98,10 +98,13 @@ class _TouchSender:
         self._atv = atv
         self._last_news = loop_time
         if mode is TouchAction.Press:
+            # A finger still down (e.g. a release that hasn't gone out yet,
+            # when the client lifts and presses again at once): lift it first.
+            lift = self._target if self._down else None
             self._target = self._pos = (float(x), float(y))
             self._down = True
             self._releasing = False
-            self._start(press=True)
+            self._start(press=True, lift=lift)
         elif mode is TouchAction.Hold:
             if not self._down:  # move without a press: treat it as one
                 self.push(atv, x, y, TouchAction.Press)
@@ -116,11 +119,11 @@ class _TouchSender:
                     self._send(x, y, TouchAction.Release), "atv_touch release"
                 )
 
-    def _start(self, press: bool) -> None:
+    def _start(self, press: bool, lift: tuple[float, float] | None = None) -> None:
         if self._task is not None and not self._task.done():
             self._task.cancel()
         self._task = self._hass.async_create_background_task(
-            self._run(press), "atv_touch finger"
+            self._run(press, lift), "atv_touch finger"
         )
 
     async def _send(self, x: float, y: float, mode: TouchAction) -> None:
@@ -129,7 +132,10 @@ class _TouchSender:
         except Exception as err:  # noqa: BLE001 - keep the stream going
             _LOGGER.debug("touch %s at %s,%s failed: %s", mode, x, y, err)
 
-    async def _run(self, press: bool) -> None:
+    async def _run(self, press: bool, lift: tuple[float, float] | None = None) -> None:
+        if lift is not None:
+            await self._send(*lift, TouchAction.Hold)
+            await self._send(*lift, TouchAction.Release)
         if press:
             await self._send(*self._pos, TouchAction.Press)
         while self._down:

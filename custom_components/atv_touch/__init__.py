@@ -68,7 +68,7 @@ def _atv_for(hass: HomeAssistant, entity_id: str) -> Any:
 
 
 TICK = 1 / 60          # the Siri Remote reports the finger ~60 times a second
-CHASE = 0.55           # share of the remaining distance covered per tick
+CHASE = 0.7            # share of the remaining distance covered per tick
 IDLE_RELEASE = 2.0     # no news from the client this long while down: lift the finger
 
 
@@ -136,6 +136,16 @@ class _TouchSender:
             await asyncio.sleep(TICK)
             tx, ty = self._target
             px, py = self._pos
+            if self._releasing:
+                # Lift where the client lifted, at once: gliding there first
+                # would show tvOS a finger slowing down and kill a fast
+                # swipe's momentum.
+                self._pos = (tx, ty)
+                await self._send(tx, ty, TouchAction.Hold)
+                await self._send(tx, ty, TouchAction.Release)
+                self._down = False
+                self._releasing = False
+                break
             dx, dy = tx - px, ty - py
             if abs(dx) < 1 and abs(dy) < 1:
                 px, py = tx, ty
@@ -143,12 +153,9 @@ class _TouchSender:
                 px, py = px + dx * CHASE, py + dy * CHASE
             self._pos = (px, py)
             await self._send(px, py, TouchAction.Hold)
-            caught_up = (px, py) == (tx, ty)
-            idle = self._hass.loop.time() - self._last_news > IDLE_RELEASE
-            if (self._releasing and caught_up) or idle:
+            if self._hass.loop.time() - self._last_news > IDLE_RELEASE:
                 await self._send(px, py, TouchAction.Release)
                 self._down = False
-                self._releasing = False
 
 
 def _sender(hass: HomeAssistant, entity_id: str) -> _TouchSender:

@@ -18,7 +18,6 @@ Coordinates are 0..1000 on both axes.
 from __future__ import annotations
 
 import asyncio
-from collections import deque
 import logging
 from typing import Any
 
@@ -68,35 +67,88 @@ def _atv_for(hass: HomeAssistant, entity_id: str) -> Any:
     return atv
 
 
+TICK = 1 / 60          # the Siri Remote reports the finger ~60 times a second
+CHASE = 0.55           # share of the remaining distance covered per tick
+IDLE_RELEASE = 2.0     # no news from the client this long while down: lift the finger
+
+
 class _TouchSender:
-    """Sends one device's touch events in order; consecutive moves collapse."""
+    """Plays one device's finger to the Apple TV on a steady 60 Hz beat.
+
+    Touch events carry a timestamp taken when they are sent, and tvOS derives
+    the finger's speed from them. Events from a phone arrive in bursts (Wi-Fi),
+    so forwarding them as they come makes the finger look jerky: speed jumps,
+    then stalls. Instead, after a press this sends a Hold every tick, gliding
+    toward the latest position the client reported, and releases where the
+    client lifted.
+    """
 
     def __init__(self, hass: HomeAssistant) -> None:
         self._hass = hass
-        self._queue: deque[tuple[Any, int, int, TouchAction]] = deque()
+        self._atv: Any = None
+        self._target = (0.0, 0.0)
+        self._pos = (0.0, 0.0)
+        self._down = False
+        self._releasing = False
+        self._last_news = 0.0
         self._task: asyncio.Task | None = None
 
     def push(self, atv: Any, x: int, y: int, mode: TouchAction) -> None:
-        if (
-            mode is TouchAction.Hold
-            and self._queue
-            and self._queue[-1][3] is TouchAction.Hold
-        ):
-            self._queue[-1] = (atv, x, y, mode)  # only the latest position matters
-        else:
-            self._queue.append((atv, x, y, mode))
-        if self._task is None or self._task.done():
-            self._task = self._hass.async_create_background_task(
-                self._run(), "atv_touch sender"
-            )
+        loop_time = self._hass.loop.time()
+        self._atv = atv
+        self._last_news = loop_time
+        if mode is TouchAction.Press:
+            self._target = self._pos = (float(x), float(y))
+            self._down = True
+            self._releasing = False
+            self._start(press=True)
+        elif mode is TouchAction.Hold:
+            if not self._down:  # move without a press: treat it as one
+                self.push(atv, x, y, TouchAction.Press)
+                return
+            self._target = (float(x), float(y))
+        elif mode is TouchAction.Release:
+            self._target = (float(x), float(y))
+            if self._down:
+                self._releasing = True
+            else:
+                self._hass.async_create_background_task(
+                    self._send(x, y, TouchAction.Release), "atv_touch release"
+                )
 
-    async def _run(self) -> None:
-        while self._queue:
-            atv, x, y, mode = self._queue.popleft()
-            try:
-                await atv.touch.action(x, y, mode)
-            except Exception as err:  # noqa: BLE001 - keep the stream going
-                _LOGGER.debug("touch %s at %s,%s failed: %s", mode, x, y, err)
+    def _start(self, press: bool) -> None:
+        if self._task is not None and not self._task.done():
+            self._task.cancel()
+        self._task = self._hass.async_create_background_task(
+            self._run(press), "atv_touch finger"
+        )
+
+    async def _send(self, x: float, y: float, mode: TouchAction) -> None:
+        try:
+            await self._atv.touch.action(int(round(x)), int(round(y)), mode)
+        except Exception as err:  # noqa: BLE001 - keep the stream going
+            _LOGGER.debug("touch %s at %s,%s failed: %s", mode, x, y, err)
+
+    async def _run(self, press: bool) -> None:
+        if press:
+            await self._send(*self._pos, TouchAction.Press)
+        while self._down:
+            await asyncio.sleep(TICK)
+            tx, ty = self._target
+            px, py = self._pos
+            dx, dy = tx - px, ty - py
+            if abs(dx) < 1 and abs(dy) < 1:
+                px, py = tx, ty
+            else:
+                px, py = px + dx * CHASE, py + dy * CHASE
+            self._pos = (px, py)
+            await self._send(px, py, TouchAction.Hold)
+            caught_up = (px, py) == (tx, ty)
+            idle = self._hass.loop.time() - self._last_news > IDLE_RELEASE
+            if (self._releasing and caught_up) or idle:
+                await self._send(px, py, TouchAction.Release)
+                self._down = False
+                self._releasing = False
 
 
 def _sender(hass: HomeAssistant, entity_id: str) -> _TouchSender:
